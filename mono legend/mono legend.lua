@@ -20,7 +20,8 @@ GameplaySettings{
         jumpmode="none",
         matchcollectionseconds=1.5,
         greyaction="normal", -- "eraseall"  -- "eraseblock"
-
+		
+		trafficCompression = 1,
 		--track generation settings
 		gravity=-.65,
         playerminspeed = 0.1,--so the player is always moving somewhat
@@ -32,6 +33,7 @@ GameplaySettings{
         downhilltiltsmoother = 0.06,
         useadvancedsteepalgorithm = true,--set false for a less extreme track
         alldownhill = false,
+		calculate_antijumps_and_antitraffic = false
 		--end track generation settings
 		
         --trafficcompression=.5,
