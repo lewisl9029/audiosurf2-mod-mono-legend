@@ -20,7 +20,7 @@ GameplaySettings{
         jumpmode="none",
         matchcollectionseconds=1.5,
         greyaction="normal", -- "eraseall"  -- "eraseblock"
-		
+		usecaterpillars = false,
 		trafficCompression = 1,
 		--track generation settings
 		gravity=-.65,
@@ -29,7 +29,7 @@ GameplaySettings{
         minimumbestjumptime = 2.5,--massage the track until a jump of at least this duration is possible
         uphilltiltscaler = 2.0,--1.5,--set to 1 for a less extreme track
         downhilltiltscaler = 2.0,--1.5,--set to 1 for a less extreme track
-        uphilltiltsmoother = 0.03,
+        uphilltiltsmoother = 0.06,
         downhilltiltsmoother = 0.06,
         useadvancedsteepalgorithm = true,--set false for a less extreme track
         alldownhill = false,
@@ -85,9 +85,129 @@ if not players then --create the players if they haven't been created yet
 	}
 end
 
+function CompareJumpTimes(a,b) --used to sort the track nodes by jump duration
+	return a.jumpairtime > b.jumpairtime
+end
+
+function CompareAntiJumpTimes(a,b) --used to sort the track nodes by jump duration
+	return a.antiairtime > b.antiairtime
+end
+
+powernodes = powernodes or {}
+antinodes = antinodes or {}
+lowestaltitude = 9999
+highestaltitude = -9999
+lowestaltitude_node = 0
+highestaltitude_node = 0
+--onTrackCreatedHasBeenCalled = false
+longestJump = longestJump or -1
+track = track or {}
+
 function OnTrackCreated(theTrack)--track is created before the traffic
 	track = theTrack --store a global copy of the track to maybe use later
 	-- when you return a track table from this function the game will read and apply any changes you made
+    
+	local songMinutes = track[#track].seconds / 60
+
+	for i=1,#track do
+		track[i].jumpedOver = false -- if this node was jumped over by a higher proiority jump
+		track[i].origIndex = i
+		track[i].antiOver = false
+	end
+
+	--find the best jumps path in this song
+	local strack = deepcopy(track)
+	table.sort(strack, CompareJumpTimes)
+
+	print("POWERNODE calculations. Best air time "..strack[1].jumpairtime)
+
+	for i=1,#strack do
+--		if strack[i].origIndex > 300 then
+		if strack[i].jumpairtime >= 2.5 then --only consider jumps of at least this amount of air time
+			longestJump = math.max(longestJump, strack[i].jumpairtime)
+			--print("POWERNODE airtime"..strack[i].jumpairtime)
+			if not track[strack[i].origIndex].jumpedOver then
+				local flightPathClear = true
+				local jumpEndSeconds = strack[i].seconds + strack[i].jumpairtime + 10
+				for j=strack[i].origIndex, #track do --make sure a higher priority jump doesn't happen while this one would be airborne
+					if track[j].seconds <= jumpEndSeconds then
+						if track[j].jumpedOver then
+							flightPathClear = false
+						end
+					else
+						break
+					end
+				end
+				if flightPathClear then
+					if #powernodes < (songMinutes * 3) then -- allow about one power node per minute of music
+						if strack[i].origIndex > 300 then
+							powernodes[#powernodes+1] = strack[i].origIndex
+							print("added powernode at ring "..strack[i].origIndex)
+						end
+						local extraJumpOverBufferSec = 10
+						jumpEndSeconds = strack[i].seconds + strack[i].jumpairtime + extraJumpOverBufferSec
+						for j=strack[i].origIndex, #track do
+							if track[j].seconds <= jumpEndSeconds then
+								track[j].jumpedOver = true --mark this node as jumped over (a better jump took priority) so it is not marked as a powernode
+							else
+								break
+							end
+						end
+					end
+				end
+			end
+		end
+
+		if strack[i].pos.y > highestaltitude then
+			highestaltitude = strack[i].pos.y
+			highestaltitude_node = i
+		end
+		if strack[i].pos.y < lowestaltitude then
+			lowestaltitude = strack[i].pos.y
+			lowestaltitude_node = i
+		end
+	end
+
+	if calcAntiJumps then
+		table.sort(strack, CompareAntiJumpTimes)
+		for i=1,#strack do
+			--if strack[i].antitrafficstrength > 0 then
+			if strack[i].antiairtime >= 2.5 then --only consider jumps of at least this amount of air time
+				--print("ANTINODE antiairtime"..strack[i].antiairtime)
+				if not track[strack[i].origIndex].antiOver then
+					local flightPathClear = true
+					local jumpEndSeconds = strack[i].seconds + strack[i].antiairtime + 10
+					for j=strack[i].origIndex, #track do --make sure a higher priority jump doesn't happen while this one would be airborne
+						if track[j].seconds <= jumpEndSeconds then
+							if track[j].antiOver then
+								flightPathClear = false
+							end
+						else
+							break
+						end
+					end
+					if flightPathClear then
+						if #antinodes < (songMinutes + 1) then -- allow about one power node per minute of music
+							if strack[i].origIndex > 300 then
+								antinodes[#antinodes+1] = strack[i].origIndex
+								--print("added powernode at ring "..strack[i].origIndex)
+							end
+							jumpEndSeconds = strack[i].seconds + strack[i].antiairtime + 10
+							for j=strack[i].origIndex, #track do
+								if track[j].seconds <= jumpEndSeconds then
+									track[j].antiOver = true --mark this node as jumped over (a better jump took priority) so it is not marked as a powernode
+								else
+									break
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+
+--	print("ontrackcreated. num powernodes "..#powernodes)
 end
 
 lanespace = 3
@@ -102,6 +222,30 @@ function OnTrafficCreated(theTraffic)
 	half_lanespace = lanespace / 2
 
 	traffic = theTraffic
+    
+    local minimapMarkers = {}
+	for j=1,#powernodes do --insert powernodes into the traffic
+		local prev = 2
+		for i=prev, #traffic do
+			--if traffic[i].impactnode >= powernodes[j] then
+			if traffic[i].chainend >= powernodes[j] then
+				--if traffic[i].impactnode == powernodes[j] then
+				if traffic[i].chainstart <= powernodes[j] then
+					traffic[i].powerupname = "powerpellet"
+					traffic[i].type = 101 -- replace the block already at this node with a power pellet. 101 as a type doesn't mean anything to the game, but the script uses it
+					traffic[i].powerRating = j
+				else
+					table.insert(traffic, i, {powerupname="powerpellet", type=101, impactnode=powernodes[j], chainstart=powernodes[j], chainend=powernodes[j], lane=0, strafe=0, strength=10, powerRating=j})
+				end
+				prev = i
+
+				table.insert(minimapMarkers, {tracknode=powernodes[j], startheight=0, endheight=fif(j==1, 15, 11), color=fif(j==1, {233,233,233}, nil) })
+				break
+			end
+		end
+	end
+    
+    AddMinimapMarkers(minimapMarkers)
 
     for i = 1, #traffic do
     	local lane = 0
@@ -139,6 +283,104 @@ function OnTrafficCreated(theTraffic)
     end
 
     return traffic -- when you return a traffic table from this function the game will read and apply any changes you made
+end
+
+function InsertLoopyLoop(theTrack, apexNode, circumference)
+	circumference = math.floor(circumference)
+	apexNode = math.floor(apexNode)
+    local halfSize = math.floor(circumference / 2)
+
+    if (apexNode < halfSize) or ((apexNode + halfSize) > #theTrack) then
+    	return theTrack
+    end
+
+    local startRing = math.max(1,apexNode - halfSize)
+    local endRing = math.min(#theTrack, apexNode + halfSize)
+    local span = endRing - startRing
+    local startTilt = theTrack[startRing].tilt
+    local endOriginalTilt = theTrack[endRing].tilt
+    local endOriginalPan = theTrack[endRing].pan
+    local tiltDeltaOverEntireLoop = -360 + (endOriginalTilt - startTilt)
+    local startPan = theTrack[startRing].pan
+    local pan = startPan
+
+	local panConstant = 40 -- make this number bigger if you have problems with loops running into themselves
+    local panRate = panConstant / halfSize
+
+    local panRejoinSpan = math.max(circumference*2, 200)
+    local panRejoinNode = math.min(#theTrack, endRing + panRejoinSpan)
+
+    if theTrack[panRejoinNode].pan > startPan then
+    	panRate = -panRate -- the loop should bend towards the future track segments naturally
+    end
+
+    local midRing = startRing + halfSize + math.ceil(halfSize/10)
+
+    for i = startRing+1, endRing do
+        theTrack[i].tilt = startTilt + tiltDeltaOverEntireLoop * ((i - startRing) / span)
+
+        if i==midRing then panRate = -panRate end
+
+        pan = pan + panRate -- pan just a little while looping to make sure it doesn't run into itself
+        theTrack[i].pan = pan
+    end
+
+    local panDeltaCascade = theTrack[endRing].pan - endOriginalPan
+    local tiltDeltaCascade = theTrack[endRing].tilt - endOriginalTilt;
+    for i = endRing + 1, #theTrack do
+        theTrack[i].tilt = theTrack[i].tilt + tiltDeltaCascade
+        theTrack[i].pan = theTrack[i].pan + panDeltaCascade
+        theTrack[i].funkyrot = true
+    end
+
+    return theTrack
+end
+
+function InsertCorkscrew(theTrack, startNode, endNode)
+	startNode = math.floor(startNode)
+	endNode = math.floor(endNode)
+
+	if endNode < #theTrack then
+		local cumulativeRoll = theTrack[startNode].roll
+		local rollIncrement = 360 / (endNode-startNode)
+		--print("endNode:"..endNode)
+		local endOriginalRoll = theTrack[endNode].roll
+
+	    for i = startNode, endNode do
+	        theTrack[i].roll = cumulativeRoll
+	    	cumulativeRoll = cumulativeRoll + rollIncrement
+	    	theTrack[i].funkyrot = true
+	    end
+
+	    local rollDeltaCascade = theTrack[endNode].roll - endOriginalRoll
+
+	    for i = endNode + 1, #theTrack do
+	        theTrack[i].roll = theTrack[i].roll + rollDeltaCascade
+	    end
+	end
+
+    return theTrack
+end
+
+function OnRequestTrackReshaping(theTrack) -- put a loop at each powerpellet to make them easier to see coming
+	--local track2 = theTrack
+	--print("onrequesttrackreshaping. num powernodes "..#powernodes)
+
+	for i=1,#powernodes do
+		local size = 100 + 100 * math.max(1,(theTrack[powernodes[i]].jumpairtime / 10))
+		theTrack = InsertLoopyLoop(theTrack, powernodes[i], size*0.5)
+		if i==1 then--double twist on the strongest loop
+			local quickscrewsize = 25
+			theTrack = InsertCorkscrew(theTrack, powernodes[i], powernodes[i]+quickscrewsize+size*.5)
+		elseif i==#powernodes then
+			--no twist on the weakest loop
+		else
+			theTrack = InsertCorkscrew(theTrack, powernodes[i], powernodes[i]+size*.5)
+		end
+	end
+
+	track = theTrack
+	return track
 end
 
 function OnSkinLoaded()-- called after OnTrafficCreated. The skin script has loaded content.
