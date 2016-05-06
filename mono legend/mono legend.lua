@@ -395,12 +395,12 @@ function OnSkinLoaded()-- called after OnTrafficCreated. The skin script has loa
 
 	SetCamera{ -- calling this function (even just once) overrides the camera settings from the skin script
 		nearcam={
-			pos={0,4,-3.50475},
+			pos={0,1,-4},
 			rot={38,0,0},
 			strafiness = 0
 		},
 		farcam={
-			pos={0,12.8,-3.50475},
+			pos={0,12.8,-3.5},
 			rot={41,0,0},
 			strafiness = 0
 		}
