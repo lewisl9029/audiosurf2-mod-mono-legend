@@ -411,30 +411,6 @@ score = 0 --the global score shared by all players co-operatively
 numBlocks = 0
 
 function OnPuzzleCollecting()
---Do nothing
-	-- local points = 0
-
-	-- local puzzle = GetPuzzle()
-	-- local matchSize = puzzle["matchedcellscount"]
-	-- if matchSize < 1 then -- no matches collected. Drop chain bonus here
-
-	-- else
-		-- local cells = puzzle["cells"]
-		-- for colnum=1,#cells do
-			-- local col = cells[colnum]
-			-- for rownum=1,#col do
-				-- local cell = col[rownum]
-				-- if cell["matched"] then
-					-- local cellPoints = 10 * ((cell["type"]+1) * cell["matchsize"])
-					-- points = points + cellPoints
-				-- end
-			-- end
-		-- end
-
-		-- score = score + points -- add the shared points earned from this collection batch
-		-- SetGlobalScore{score=score,showdelta=true}
-	-- end
-	-- players[1].points = score
 end
 
 iCurrentRing = 0 --Update function keeps this current
